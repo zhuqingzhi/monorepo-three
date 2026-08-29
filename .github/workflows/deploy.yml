@@ -142,6 +142,27 @@ jobs:
               exit 1
             fi
 
+      - name: 获取后端 pm2 状态与部署日志
+        if: always()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 2m
+          script: |
+            echo "=== ${{ env.APP_DIR }} 内容 ==="
+            ls -la ${{ env.APP_DIR }} 2>/dev/null || true
+            echo "=== pm2 进程列表 ==="
+            pm2 ls 2>/dev/null || true
+            echo "=== 1024 端口监听 ==="
+            (ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null || true) | grep :1024 || true
+            echo "=== 部署日志（最近 100 行）==="
+            tail -n 100 ${{ env.APP_DIR }}/logs/deploy.log 2>/dev/null || true
+            echo "=== pm2 错误日志（最近 50 行）==="
+            tail -n 50 ${{ env.APP_DIR }}/logs/pm2-error.log 2>/dev/null || true
+
   # ========== QQ 邮箱流水线通知 ==========
   notify:
     name: QQ 邮箱流水线通知

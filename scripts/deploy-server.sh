@@ -84,6 +84,10 @@ setup_node_path
 command -v git >/dev/null 2>&1 || { log "错误: 服务器缺少 git"; exit 1; }
 ensure_pnpm
 ensure_pm2
+# npm 全局安装后，当前 shell 的命令缓存可能还没刷新
+hash -r 2>/dev/null || true
+
+log "工具链版本: node=$(node -v 2>/dev/null || echo 'N/A'), pnpm=$(pnpm -v 2>/dev/null || echo 'N/A'), pm2=$(pm2 -v 2>/dev/null || echo 'N/A')"
 
 mkdir -p "$DEPLOY_DIR/logs"
 
@@ -115,8 +119,13 @@ cp "$DEPLOY_DIR/config.production.yml" "$DIST_CONFIG"
 
 # ---------- 4. pm2 重启（日志集中到 $DEPLOY_DIR/logs） ----------
 export DEPLOY_DIR
-pm2 startOrRestart "$DEPLOY_DIR/repo/apps/server/ecosystem.config.js" --update-env
+log "pm2 启动/重启: $DEPLOY_DIR/repo/apps/server/ecosystem.config.js"
+pm2 startOrRestart "$DEPLOY_DIR/repo/apps/server/ecosystem.config.js" --update-env 2>&1 | tee -a "$DEPLOY_DIR/logs/pm2-start.log"
 pm2 save
+log "pm2 进程列表:"
+pm2 ls 2>&1 | tee -a "$DEPLOY_DIR/logs/pm2-start.log"
+log "pm2 进程详情:"
+pm2 describe monorepo-three-server 2>&1 | tee -a "$DEPLOY_DIR/logs/pm2-start.log" || true
 
 # ---------- 5. 健康检查（最多等 60s） ----------
 log "健康检查: http://127.0.0.1:$APP_PORT$HEALTH_PATH"
@@ -129,6 +138,19 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 log "部署结果: $HEALTH (commit $COMMIT)"
+
+# 健康检查失败时，把 pm2 和端口信息打印出来便于排查
+if [ "$HEALTH" != "SUCCESS" ]; then
+  log "健康检查失败，收集诊断信息..."
+  log "1024 端口监听状态:"
+  (ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null || true) | grep -E ":${APP_PORT}\s" || true
+  log "pm2 进程列表:"
+  pm2 ls 2>&1 || true
+  log "pm2 进程日志 (最近 50 行):"
+  pm2 logs monorepo-three-server --lines 50 2>&1 | tee -a "$DEPLOY_DIR/logs/pm2-start.log" || true
+  log "后端应用日志 (pm2-error.log 最近 50 行):"
+  tail -n 50 "$DEPLOY_DIR/logs/pm2-error.log" 2>/dev/null || true
+fi
 
 # ---------- 6. QQ 邮箱通知（配置了 .mail.env 才发送） ----------
 # .mail.env 格式（不进 git，只存服务器）:
