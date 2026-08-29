@@ -1,0 +1,178 @@
+name: Build & Deploy
+
+# 推送到 main 或手动触发：构建前后端 -> 部署到腾讯云 -> QQ 邮箱通知
+# 仓库地址: https://github.com/zhuqingzhi/monorepo-three
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ========== 构建 ==========
+  build:
+    name: 构建前端 & 后端
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint 检查
+        run: pnpm lint
+
+      - name: 构建所有子包
+        run: pnpm build
+
+      - name: 上传前端产物 (apps/web/dist)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-web
+          path: apps/web/dist
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: 上传后端产物 (dist + package.json + ecosystem)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-server
+          path: |
+            apps/server/dist
+            apps/server/package.json
+            apps/server/ecosystem.config.js
+          if-no-files-found: error
+          retention-days: 7
+
+  # ========== 部署到腾讯云 ==========
+  deploy:
+    name: 部署到腾讯云
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      # 远程 nginx 静态目录 / 后端应用目录
+      WEB_DIR: /home/nginx/html/monorepo-three/web
+      APP_DIR: /home/nginx/html/monorepo-three/server
+    steps:
+      - name: 下载前端产物
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-web
+          path: staging/web
+
+      - name: 下载后端产物
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-server
+          path: staging/server
+
+      - name: 整理部署目录
+        run: |
+          mkdir -p release/web release/server
+          cp -r staging/web/. release/web/
+          cp -r staging/server/dist/. release/server/
+          cp staging/server/package.json release/server/
+          cp staging/server/ecosystem.config.js release/server/
+          ls -R release
+
+      - name: 清理远程目录
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            mkdir -p ${{ env.WEB_DIR }} ${{ env.APP_DIR }}
+            rm -rf ${{ env.WEB_DIR }}/*
+            # 注意：不清空 APP_DIR，保留服务器上的生产配置 config.production.yml
+
+      - name: 上传前端到 nginx 静态目录
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: 'release/web/*'
+          target: ${{ env.WEB_DIR }}
+          strip_components: 1
+          overwrite: true
+
+      - name: 上传后端到应用目录
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: 'release/server/*'
+          target: ${{ env.APP_DIR }}
+          strip_components: 1
+          overwrite: true
+
+      - name: 安装生产依赖并重启服务
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ${{ env.APP_DIR }}
+            mkdir -p logs
+            npm install --omit=dev --no-audit --no-fund
+            # 保留服务器上的生产配置（含真实密码），首次部署时由模板生成
+            if [ ! -f config.production.yml ]; then
+              cp config/config.yml config.production.yml
+              echo ">>> 首次部署：请编辑 ${{ env.APP_DIR }}/config.production.yml 填入真实密码后重新部署"
+            fi
+            cp config.production.yml config/config.yml
+            pm2 startOrRestart ecosystem.config.js --update-env
+            pm2 save
+
+  # ========== QQ 邮箱部署通知 ==========
+  notify:
+    name: QQ 邮箱部署通知
+    runs-on: ubuntu-latest
+    needs: [build, deploy]
+    if: always()
+    steps:
+      - name: 发送邮件
+        uses: dawidd6/action-send-mail@v3
+        with:
+          # QQ 邮箱 SMTP（如使用其他邮箱改这里）
+          server_address: smtp.qq.com
+          server_port: 465
+          # TODO: <== 在仓库 Settings -> Secrets and variables -> Actions 中填入：
+          #   QQ_MAIL_ACCOUNT : 发件 QQ 邮箱，例如 xxxxx@qq.com
+          #   QQ_MAIL_AUTH    : QQ 邮箱 SMTP 授权码（设置 -> 账户 -> 开启 SMTP 服务后获取）
+          #   QQ_MAIL_TO      : 收件邮箱（可与发件邮箱相同）
+          username: ${{ secrets.QQ_MAIL_ACCOUNT }}
+          password: ${{ secrets.QQ_MAIL_AUTH }}
+          subject: '【monorepo-three】构建 ${{ needs.build.result }} / 部署 ${{ needs.deploy.result }}'
+          to: ${{ secrets.QQ_MAIL_TO }}
+          from: ${{ secrets.QQ_MAIL_ACCOUNT }}
+          body: |
+            仓库: ${{ github.repository }}
+            分支: ${{ github.ref_name }}
+            提交: ${{ github.sha }}
+            触发人: ${{ github.actor }}
+            构建结果: ${{ needs.build.result }}
+            部署结果: ${{ needs.deploy.result }}
+            运行详情: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

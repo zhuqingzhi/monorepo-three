@@ -2,9 +2,13 @@
  * Commit message 规范：Conventional Commits
  * 格式: <type>(<scope>?): <subject>
  * 例如: feat(web): 新增 Three.js 演示页
+ *
+ * 合并 cz.config.mjs（cz-git 交互式提示与校验规则保持一致，含 DeepSeek AI 配置）。
  */
+import czConfig from './cz.config.mjs';
+
 export default {
-  extends: ['@commitlint/config-conventional'],
+  ...czConfig,
   rules: {
     'type-enum': [
       2,

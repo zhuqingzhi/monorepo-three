@@ -17,13 +17,23 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
+    "cz": "czg",
+    "cz:ai": "czg ai",
     "prepare": "husky"
+  },
+  "config": {
+    "commitizen": {
+      "path": "node_modules/cz-git"
+    }
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.0",
     "@commitlint/config-conventional": "^19.8.0",
     "@eslint/js": "^9.27.0",
+    "commitizen": "^4.3.2",
     "concurrently": "^9.1.2",
+    "cz-git": "^1.14.0",
+    "czg": "^1.14.0",
     "eslint": "^9.27.0",
     "eslint-config-prettier": "^10.1.5",
     "eslint-plugin-vue": "^10.1.0",

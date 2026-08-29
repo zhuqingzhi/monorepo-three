@@ -87,9 +87,61 @@ git commit
 ```
 
 - 提交信息格式：`feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert[(scope)]: <subject>`，
-  例如 `feat(web): 新增 Three.js 演示页`。
+  例如 `feat(web): 新增 Three.js 演示页`。推荐用 `pnpm cz` 交互式生成（见下节）。
 - 任何不合规的提交信息都会被拒绝；暂存区中存在 ESLint 无法修复的错误时提交同样会被拦截，
   而未暂存（只在工作区）的文件不会校验。
+
+## 提交规范工具（cz-git + DeepSeek AI）
+
+使用 `cz-git` 交互式生成符合 Conventional Commits 的提交信息，配置在 `cz.config.mjs`
+（`commitlint.config.mjs` 会合并它，保证提示与校验规则一致）：
+
+```bash
+pnpm cz        # 交互式选择类型/范围 -> 自动拼装合规提交信息
+pnpm cz:ai     # AI 模式：调用 DeepSeek 根据 git diff 生成提交信息
+```
+
+DeepSeek 配置位置在 `cz.config.mjs` 的 `openAI` 段：
+
+```js
+const openAI = {
+  token: process.env.DEEPSEEK_API_KEY ?? ..., // TODO: <== 在此填入 DeepSeek API Key
+  endpoint: 'https://api.deepseek.com',        // OpenAI 兼容协议
+  model: 'deepseek-chat',
+};
+```
+
+> 也可以不改文件，直接设置环境变量 `DEEPSEEK_API_KEY=sk-xxx` 后运行 `pnpm cz:ai`。
+
+## CI/CD（GitHub Actions -> 腾讯云）
+
+流水线定义在 `.github/workflows/deploy.yml`，仓库地址
+<https://github.com/zhuqingzhi/monorepo-three>（remote origin 已配置）。
+推送到 `main` 或手动触发，三个 Job：
+
+1. **build**：pnpm 安装依赖 -> lint -> 构建前后端 -> 上传 artifacts
+2. **deploy**：scp 上传到腾讯云并重启服务
+   - 前端 `apps/web/dist` -> `/home/nginx/html/monorepo-three/web`（nginx 静态目录）
+   - 后端 `dist + package.json + ecosystem.config.js` -> `/home/nginx/html/monorepo-three/server`
+     服务器上执行 `npm install --omit=dev` 并 `pm2 startOrRestart`（进程名 `monorepo-three-server`）
+   - **生产配置保护**：首次部署会在服务器生成 `config.production.yml`（真实密码只填在这一份，
+     不进 git），之后每次部署自动回写、不会被覆盖。
+3. **notify**：构建/部署结束后通过 QQ 邮箱 SMTP 发送结果邮件（成功失败都发）。
+
+### 需要在 GitHub 仓库 Settings -> Secrets and variables -> Actions 中配置
+
+| Secret            | 说明                                                                | 示例                    |
+| ----------------- | ------------------------------------------------------------------- | ----------------------- |
+| `SERVER_HOST`     | 腾讯云服务器 IP                                                     | `1.2.3.4`               |
+| `SERVER_PORT`     | SSH 端口（可省略，默认 22）                                         | `22`                    |
+| `SERVER_USER`     | SSH 用户                                                            | `root` 或 `nginx`       |
+| `SSH_PRIVATE_KEY` | SSH 私钥（对应服务器 `authorized_keys`）                            | `-----BEGIN OPENSSH...` |
+| `QQ_MAIL_ACCOUNT` | 发件 QQ 邮箱                                                        | `xxxxx@qq.com`          |
+| `QQ_MAIL_AUTH`    | QQ 邮箱 SMTP 授权码（**TODO 待填**：邮箱设置 -> 账户 -> 开启 SMTP） | 16 位授权码             |
+| `QQ_MAIL_TO`      | 收件邮箱                                                            | `xxxxx@qq.com`          |
+
+> 服务器需预装：Node.js >= 20、pm2（`npm i -g pm2`）、nginx。首次部署完成后
+> SSH 登录编辑 `/home/nginx/html/monorepo-three/server/config.production.yml` 填入真实密码。
 
 ## 环境要求
 

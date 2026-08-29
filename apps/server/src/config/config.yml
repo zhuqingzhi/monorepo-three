@@ -12,8 +12,8 @@ mysql:
   host: 127.0.0.1
   port: 3306
   username: root
-  password: '' # TODO: <== 在此填写 MySQL 密码
-  database: demo
+  password: '12345678'
+  database: test
 
 # ---------------- Redis ----------------
 redis:
@@ -26,6 +26,6 @@ minio:
   endPoint: 127.0.0.1
   port: 9000
   useSSL: false
-  accessKey: minioadmin # TODO: <== 在此填写 MinIO AccessKey
-  secretKey: '' # TODO: <== 在此填写 MinIO SecretKey
+  accessKey: admin # TODO: <== 在此填写 MinIO AccessKey
+  secretKey: 'Admin@123456' # TODO: <== 在此填写 MinIO SecretKey
   bucket: demo
