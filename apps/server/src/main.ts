@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 
@@ -9,7 +9,7 @@ import { AppModule } from './app.module';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
-  app.useGlobalPipes(new ValidationPipe({ transform: true }));
+  // 允许前端(8080)跨域访问
   app.enableCors();
 
   const configService = app.get(ConfigService);

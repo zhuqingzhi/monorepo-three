@@ -15,11 +15,14 @@ export default defineConfig({
   server: {
     host: true,
     port: 8080,
-    // 可选：把接口请求代理到 NestJS 后端
+    // 端口被占用时直接报错退出，而不是悄悄切换到其他端口
+    strictPort: true,
+    // 可选：把接口请求代理到 NestJS 后端（/api/xxx -> 后端 /xxx）
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:1024',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
   },
