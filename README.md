@@ -27,6 +27,8 @@ threejs-monorepo/
 │           ├── redis/               # Redis (ioredis)
 │           └── storage/             # MinIO (minio sdk)
 ├── .husky/                     # pre-commit / commit-msg 钩子
+├── scripts/
+│   └── deploy-server.sh        # 服务器端后端部署脚本（CI 推送到服务器并触发）
 ├── eslint.config.mjs           # ESLint 9 Flat Config（TS + Vue）
 ├── .prettierrc / .prettierignore
 ├── commitlint.config.mjs       # Conventional Commits 校验
@@ -119,14 +121,34 @@ const openAI = {
 <https://github.com/zhuqingzhi/monorepo-three>（remote origin 已配置）。
 推送到 `main` 或手动触发，三个 Job：
 
-1. **build**：pnpm 安装依赖 -> lint -> 构建前后端 -> 上传 artifacts
-2. **deploy**：scp 上传到腾讯云并重启服务
-   - 前端 `apps/web/dist` -> `/home/nginx/html/monorepo-three/web`（nginx 静态目录）
-   - 后端 `dist + package.json + ecosystem.config.js` -> `/home/nginx/html/monorepo-three/server`
-     服务器上执行 `npm install --omit=dev` 并 `pm2 startOrRestart`（进程名 `monorepo-three-server`）
-   - **生产配置保护**：首次部署会在服务器生成 `config.production.yml`（真实密码只填在这一份，
-     不进 git），之后每次部署自动回写、不会被覆盖。
-3. **notify**：构建/部署结束后通过 QQ 邮箱 SMTP 发送结果邮件（成功失败都发）。
+1. **build**：pnpm 安装依赖 -> lint -> 构建前后端（后端构建仅做编译校验，产物不上传）
+   -> 上传前端 artifact
+2. **deploy**：前端与后端采用不同策略
+   - **前端**：CI 构建的 `apps/web/dist` scp 到 `/home/nginx/html/monorepo-three/web`
+     （nginx 静态目录）
+   - **后端**：CI 只把 `scripts/deploy-server.sh` 推送到服务器 `/home/nginx/html/server/`
+     并通过 SSH 触发执行——服务器**自行拉取 GitHub 最新代码、安装依赖、构建、pm2 重启**
+     （脚本内含健康检查），代码与日志都保留在服务器上
+3. **notify**：流水线结束后通过 QQ 邮箱 SMTP 发送结果邮件（成功失败都发）
+
+### 服务器后端部署目录（/home/nginx/html/server）
+
+```
+/home/nginx/html/server/
+├── repo/                    # git clone 的仓库（脚本自动维护，可随时删除重拉）
+│   └── apps/server/         # 后端源码 + dist 构建产物 + ecosystem.config.js
+├── config.production.yml    # 生产配置（真实密码只填在这份，不进 git，不会被部署覆盖）
+├── .mail.env                # 后端重启邮件通知凭据（可选，格式见下）
+├── logs/                    # pm2-out.log / pm2-error.log / deploy.log
+└── deploy-server.sh         # 部署脚本（CI 每次部署自动推送最新版）
+```
+
+- 服务器需预装：**git**、Node.js >= 20（pnpm/pm2 缺失时脚本会自动 `npm i -g` 安装）
+- **私有仓库**需在服务器上配置 GitHub Deploy Key（只读），并在
+  `/home/nginx/html/server/.deploy.env` 写入 `REPO_URL="git@github.com:zhuqingzhi/monorepo-three.git"`
+- 手动重新部署：`bash /home/nginx/html/server/deploy-server.sh`
+- 生产配置：首次部署自动生成 `config.production.yml`，SSH 登录填入真实密码后重新部署即可，
+  之后每次部署自动回写、不被覆盖
 
 ### 需要在 GitHub 仓库 Settings -> Secrets and variables -> Actions 中配置
 
@@ -136,12 +158,30 @@ const openAI = {
 | `SERVER_PORT`     | SSH 端口（可省略，默认 22）                                         | `22`                    |
 | `SERVER_USER`     | SSH 用户                                                            | `root` 或 `nginx`       |
 | `SSH_PRIVATE_KEY` | SSH 私钥（对应服务器 `authorized_keys`）                            | `-----BEGIN OPENSSH...` |
-| `QQ_MAIL_ACCOUNT` | 发件 QQ 邮箱                                                        | `xxxxx@qq.com`          |
+| `QQ_MAIL_ACCOUNT` | 发件 QQ 邮箱（流水线通知）                                          | `xxxxx@qq.com`          |
 | `QQ_MAIL_AUTH`    | QQ 邮箱 SMTP 授权码（**TODO 待填**：邮箱设置 -> 账户 -> 开启 SMTP） | 16 位授权码             |
 | `QQ_MAIL_TO`      | 收件邮箱                                                            | `xxxxx@qq.com`          |
 
-> 服务器需预装：Node.js >= 20、pm2（`npm i -g pm2`）、nginx。首次部署完成后
-> SSH 登录编辑 `/home/nginx/html/monorepo-three/server/config.production.yml` 填入真实密码。
+### 后端重启后的邮件通知方案
+
+| 方案                      | 触发时机                                           | 现状                                                               |
+| ------------------------- | -------------------------------------------------- | ------------------------------------------------------------------ |
+| A. 部署脚本通知（已内置） | 每次执行 `deploy-server.sh`（CI 触发或手动）重启后 | 脚本内置：健康检查结束后用 curl 直连 QQ SMTP 发结果邮件，不依赖 CI |
+| B. pm2 事件钩子           | 任何一次进程重启/崩溃（含异常退出自动重启）        | 未内置，见下方说明                                                 |
+| C. 流水线通知（已有）     | CI 部署失败时 `notify` Job 发邮件                  | 已配置（`dawidd6/action-send-mail`）                               |
+
+**方案 A 启用方式**：在服务器上创建 `/home/nginx/html/server/.mail.env`（不进 git）：
+
+```bash
+MAIL_FROM="xxxxx@qq.com"   # 发件 QQ 邮箱
+MAIL_AUTH="SMTP 授权码"     # 邮箱设置 -> 账户 -> 开启 SMTP 服务获取
+MAIL_TO="xxxxx@qq.com"     # 收件邮箱
+```
+
+**方案 B 思路（崩溃告警，按需扩展）**：pm2 原生不支持邮件，可写一个常驻 hook 进程
+`pm2.launchBus()` 订阅 `process:event`（`restart`/`exit`/`online`）与 `process:exception`
+事件，用 `nodemailer` 走 QQ SMTP 发邮件，再用 pm2 托管这个 hook 进程即可——这样
+OOM 重启、异常崩溃也能收到邮件（方案 A 只覆盖部署动作）。
 
 ## 环境要求
 

@@ -1,6 +1,8 @@
 name: Build & Deploy
 
-# 推送到 main 或手动触发：构建前后端 -> 部署到腾讯云 -> QQ 邮箱通知
+# 推送到 main 或手动触发：
+#   前端: CI 构建产物 scp 到 nginx 静态目录
+#   后端: CI 只负责推送部署脚本到服务器并触发执行（服务器自行拉取代码、构建、pm2 重启）
 # 仓库地址: https://github.com/zhuqingzhi/monorepo-three
 on:
   push:
@@ -12,9 +14,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ========== 构建 ==========
+  # ========== 构建（前端产物 + 全仓校验） ==========
   build:
-    name: 构建前端 & 后端
+    name: 构建前端 & 校验
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -37,7 +39,8 @@ jobs:
       - name: Lint 检查
         run: pnpm lint
 
-      - name: 构建所有子包
+      # 后端构建仅在 CI 做编译校验，产物不上传——服务器部署脚本会自行拉代码构建
+      - name: 构建所有子包（含后端编译校验）
         run: pnpm build
 
       - name: 上传前端产物 (apps/web/dist)
@@ -48,46 +51,29 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: 上传后端产物 (dist + package.json + ecosystem)
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-server
-          path: |
-            apps/server/dist
-            apps/server/package.json
-            apps/server/ecosystem.config.js
-          if-no-files-found: error
-          retention-days: 7
-
   # ========== 部署到腾讯云 ==========
   deploy:
     name: 部署到腾讯云
     runs-on: ubuntu-latest
     needs: build
     env:
-      # 远程 nginx 静态目录 / 后端应用目录
+      # 前端 nginx 静态目录 / 后端部署目录（代码 + 日志）
       WEB_DIR: /home/nginx/html/monorepo-three/web
-      APP_DIR: /home/nginx/html/monorepo-three/server
+      APP_DIR: /home/nginx/html/server
     steps:
+      - name: 检出代码（获取部署脚本）
+        uses: actions/checkout@v4
+
       - name: 下载前端产物
         uses: actions/download-artifact@v4
         with:
           name: dist-web
           path: staging/web
 
-      - name: 下载后端产物
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-server
-          path: staging/server
-
-      - name: 整理部署目录
+      - name: 整理前端部署目录
         run: |
-          mkdir -p release/web release/server
+          mkdir -p release/web
           cp -r staging/web/. release/web/
-          cp -r staging/server/dist/. release/server/
-          cp staging/server/package.json release/server/
-          cp staging/server/ecosystem.config.js release/server/
           ls -R release
 
       - name: 清理远程目录
@@ -100,7 +86,7 @@ jobs:
           script: |
             mkdir -p ${{ env.WEB_DIR }} ${{ env.APP_DIR }}
             rm -rf ${{ env.WEB_DIR }}/*
-            # 注意：不清空 APP_DIR，保留服务器上的生产配置 config.production.yml
+            # 注意：不清空 APP_DIR，保留服务器上的 repo/、config.production.yml、logs
 
       - name: 上传前端到 nginx 静态目录
         uses: appleboy/scp-action@v1
@@ -116,42 +102,33 @@ jobs:
           strip_components: 2
           overwrite: true
 
-      - name: 上传后端到应用目录
+      - name: 推送后端部署脚本到服务器
         uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          # tar 内路径为 release/server/xxx，同样剥 2 层（release/ + server/）
-          source: 'release/server/*'
+          # tar 内路径为 scripts/deploy-server.sh，剥 1 层 -> deploy-server.sh 落进 APP_DIR
+          source: 'scripts/deploy-server.sh'
           target: ${{ env.APP_DIR }}
-          strip_components: 2
+          strip_components: 1
           overwrite: true
 
-      - name: 安装生产依赖并重启服务
+      - name: 触发服务器拉取代码并重启后端
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 15m
           script: |
-            cd ${{ env.APP_DIR }}
-            mkdir -p logs
-            npm install --omit=dev --no-audit --no-fund
-            # 保留服务器上的生产配置（含真实密码），首次部署时由模板生成
-            if [ ! -f config.production.yml ]; then
-              cp config/config.yml config.production.yml
-              echo ">>> 首次部署：请编辑 ${{ env.APP_DIR }}/config.production.yml 填入真实密码后重新部署"
-            fi
-            cp config.production.yml config/config.yml
-            pm2 startOrRestart ecosystem.config.js --update-env
-            pm2 save
+            bash ${{ env.APP_DIR }}/deploy-server.sh 2>&1 | tee -a ${{ env.APP_DIR }}/logs/deploy.log
 
-  # ========== QQ 邮箱部署通知 ==========
+  # ========== QQ 邮箱流水线通知 ==========
   notify:
-    name: QQ 邮箱部署通知
+    name: QQ 邮箱流水线通知
     runs-on: ubuntu-latest
     needs: [build, deploy]
     if: always()
@@ -177,5 +154,5 @@ jobs:
             提交: ${{ github.sha }}
             触发人: ${{ github.actor }}
             构建结果: ${{ needs.build.result }}
-            部署结果: ${{ needs.deploy.result }}
+            部署结果: ${{ needs.deploy.result }}（后端由服务器拉取代码自行部署，失败时服务器脚本也会单独发邮件）
             运行详情: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

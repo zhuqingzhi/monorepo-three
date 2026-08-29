@@ -29,6 +29,16 @@ export default tseslint.config(
       globals: { ...globals.node, ...globals.browser },
     },
   },
+  // pm2 ecosystem.config.js 必须是 CommonJS（pm2 不支持 ESM 配置），允许 require
+  {
+    files: ['**/ecosystem.config.js'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
   // 必须放在最后：关闭所有与 Prettier 冲突的格式类规则
   prettierConfig,
   {
