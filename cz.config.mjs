@@ -9,10 +9,10 @@
 // AI 提交信息生成配置（DeepSeek，OpenAI 兼容协议）
 const openAI = {
   // TODO: <== 在此填入 DeepSeek API Key（或在 shell 中设置环境变量 DEEPSEEK_API_KEY）
-  token: process.env.DEEPSEEK_API_KEY ?? process.env.CZ_OPENAI_API_KEY ?? '',
+  token: process.env.DOUBAO_API_KEY ?? '',
   // DeepSeek 官方 endpoint，无需修改；如走代理/自建网关可改环境变量 DEEPSEEK_ENDPOINT
   endpoint: process.env.DEEPSEEK_ENDPOINT ?? 'https://api.deepseek.com',
-  model: process.env.DEEPSEEK_MODEL ?? 'deepseek-chat',
+  model: process.env.DEEPSEEK_MODEL ?? 'doubao-pro-4k',
   locale: 'zh-CN',
 };
 
