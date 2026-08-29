@@ -124,6 +124,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 15m
           script: |
+            mkdir -p ${{ env.APP_DIR }}/logs
             bash ${{ env.APP_DIR }}/deploy-server.sh 2>&1 | tee -a ${{ env.APP_DIR }}/logs/deploy.log
 
   # ========== QQ 邮箱流水线通知 ==========

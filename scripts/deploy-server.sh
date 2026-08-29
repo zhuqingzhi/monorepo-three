@@ -33,10 +33,57 @@ log() { echo "[deploy-server][$(date '+%F %T')] $*"; }
 [ -f "$DEPLOY_DIR/.deploy.env" ] && . "$DEPLOY_DIR/.deploy.env"
 DEPLOY_DIR="${DEPLOY_DIR:-/home/nginx/html/server}"
 
-# ---------- 0. 工具自检（缺什么装什么） ----------
+# ---------- 0. 让非登录 SSH shell 也能找到 node/npm/pnpm/pm2 ----------
+setup_node_path() {
+  # nvm / 用户配置 / 系统配置依次尝试 source，失败也继续
+  for src in \
+    "$HOME/.nvm/nvm.sh" \
+    "$HOME/.bashrc" \
+    "$HOME/.profile" \
+    "$HOME/.bash_profile" \
+    /etc/profile \
+    /etc/bash.bashrc; do
+    # shellcheck disable=SC1090,SC1091
+    [ -f "$src" ] && . "$src" >/dev/null 2>&1 || true
+  done
+
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    log "Node: $(command -v node), npm: $(command -v npm)"
+  else
+    log "警告: 仍未找到 node/npm，请确认服务器已安装 Node.js，并把 bin 目录加入 PATH"
+  fi
+}
+
+ensure_pnpm() {
+  if command -v pnpm >/dev/null 2>&1; then return 0; fi
+  log "pnpm 未找到，尝试安装..."
+  if command -v npm >/dev/null 2>&1; then
+    npm install -g pnpm@11
+  elif command -v corepack >/dev/null 2>&1; then
+    corepack enable
+    corepack prepare pnpm@11 --activate
+  else
+    log "错误: 没有可用的 npm/corepack 来安装 pnpm，请先安装 Node.js"
+    return 1
+  fi
+}
+
+ensure_pm2() {
+  if command -v pm2 >/dev/null 2>&1; then return 0; fi
+  log "pm2 未找到，尝试安装..."
+  if command -v npm >/dev/null 2>&1; then
+    npm install -g pm2
+  else
+    log "错误: 没有 npm 来安装 pm2，请先安装 Node.js"
+    return 1
+  fi
+}
+
+# 执行环境准备
+setup_node_path
 command -v git >/dev/null 2>&1 || { log "错误: 服务器缺少 git"; exit 1; }
-command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@11
-command -v pm2  >/dev/null 2>&1 || npm install -g pm2
+ensure_pnpm
+ensure_pm2
 
 mkdir -p "$DEPLOY_DIR/logs"
 
