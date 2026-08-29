@@ -125,7 +125,22 @@ jobs:
           command_timeout: 15m
           script: |
             mkdir -p ${{ env.APP_DIR }}/logs
+            # 上传自检：脚本不在说明 scp 步骤未生效，直接失败并列出目录内容便于排查
+            if [ ! -f ${{ env.APP_DIR }}/deploy-server.sh ]; then
+              echo "ERROR: ${{ env.APP_DIR }}/deploy-server.sh 不存在，上一步 scp 上传未生效。当前目录内容："
+              ls -la ${{ env.APP_DIR }} 2>/dev/null || true
+              exit 1
+            fi
             bash ${{ env.APP_DIR }}/deploy-server.sh 2>&1 | tee -a ${{ env.APP_DIR }}/logs/deploy.log
+            echo "=== ${{ env.APP_DIR }} 内容 ==="
+            ls -la ${{ env.APP_DIR }}
+            # tee 管道会吞掉脚本退出码，这里用健康检查兜底：后端没起来就让本步骤变红
+            if curl -sf http://127.0.0.1:1024/health >/dev/null 2>&1; then
+              echo "health check: OK"
+            else
+              echo "health check: FAILED（后端未在 1024 端口正常响应，查看上方脚本日志定位原因）"
+              exit 1
+            fi
 
   # ========== QQ 邮箱流水线通知 ==========
   notify:
