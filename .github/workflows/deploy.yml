@@ -131,10 +131,11 @@ jobs:
               ls -la ${{ env.APP_DIR }} 2>/dev/null || true
               exit 1
             fi
-            bash ${{ env.APP_DIR }}/deploy-server.sh 2>&1 | tee -a ${{ env.APP_DIR }}/logs/deploy.log
+            # 用 bash -x 逐行打印脚本执行过程，同时把输出保存到服务器日志
+            bash -x ${{ env.APP_DIR }}/deploy-server.sh 2>&1 | tee -a ${{ env.APP_DIR }}/logs/deploy.log
             echo "=== ${{ env.APP_DIR }} 内容 ==="
             ls -la ${{ env.APP_DIR }}
-            # tee 管道会吞掉脚本退出码，这里用健康检查兜底：后端没起来就让本步骤变红
+            # 脚本通过 tee 管道后退出码可能被吞，这里用健康检查兜底：后端没起来让本步骤变红
             if curl -sf http://127.0.0.1:1024/health >/dev/null 2>&1; then
               echo "health check: OK"
             else
@@ -152,14 +153,19 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 2m
           script: |
+            echo "=== 环境路径 ==="
+            which node 2>/dev/null || echo "node not in PATH"; node -v 2>/dev/null || true
+            which npm 2>/dev/null || echo "npm not in PATH"; npm -v 2>/dev/null || true
+            which pnpm 2>/dev/null || echo "pnpm not in PATH"; pnpm -v 2>/dev/null || true
+            which pm2 2>/dev/null || echo "pm2 not in PATH"; pm2 -v 2>/dev/null || true
             echo "=== ${{ env.APP_DIR }} 内容 ==="
             ls -la ${{ env.APP_DIR }} 2>/dev/null || true
             echo "=== pm2 进程列表 ==="
             pm2 ls 2>/dev/null || true
             echo "=== 1024 端口监听 ==="
-            (ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null || true) | grep :1024 || true
-            echo "=== 部署日志（最近 100 行）==="
-            tail -n 100 ${{ env.APP_DIR }}/logs/deploy.log 2>/dev/null || true
+            (ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null || true) | grep -E ':1024\s' || true
+            echo "=== 部署日志（deploy.log 最近 300 行）==="
+            tail -n 300 ${{ env.APP_DIR }}/logs/deploy.log 2>/dev/null || echo "deploy.log 不存在"
             echo "=== pm2 错误日志（最近 50 行）==="
             tail -n 50 ${{ env.APP_DIR }}/logs/pm2-error.log 2>/dev/null || true
 

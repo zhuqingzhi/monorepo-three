@@ -19,7 +19,15 @@
 # =============================================================================
 set -euo pipefail
 
+# 让脚本所有 stdout/stderr 同时写入日志文件，便于事后排查
 DEPLOY_DIR="${DEPLOY_DIR:-/home/nginx/html/server}"
+mkdir -p "$DEPLOY_DIR/logs"
+exec > >(tee -a "$DEPLOY_DIR/logs/deploy.log")
+exec 2> >(tee -a "$DEPLOY_DIR/logs/deploy.log" >&2)
+
+# 最原始的标记：即使后续函数/环境有问题，也能在 stdout 里看到这行
+printf '\n========== deploy-server.sh START %s ==========\n' "$(date '+%F %T')"
+
 REPO_URL="${REPO_URL:-https://github.com/zhuqingzhi/monorepo-three.git}"
 BRANCH="${BRANCH:-main}"
 SERVER_PKG="@demo/server"
@@ -30,12 +38,15 @@ log() { echo "[deploy-server][$(date '+%F %T')] $*"; }
 
 # 可选的服务器本地覆盖文件（REPO_URL / BRANCH 等），不进 git
 # shellcheck disable=SC1091
-[ -f "$DEPLOY_DIR/.deploy.env" ] && . "$DEPLOY_DIR/.deploy.env"
+if [ -f "$DEPLOY_DIR/.deploy.env" ]; then
+  log "加载 $DEPLOY_DIR/.deploy.env"
+  . "$DEPLOY_DIR/.deploy.env"
+fi
 DEPLOY_DIR="${DEPLOY_DIR:-/home/nginx/html/server}"
 
 # ---------- 0. 让非登录 SSH shell 也能找到 node/npm/pnpm/pm2 ----------
 setup_node_path() {
-  # nvm / 用户配置 / 系统配置依次尝试 source，失败也继续
+  log "尝试加载 node/npm 环境..."
   for src in \
     "$HOME/.nvm/nvm.sh" \
     "$HOME/.bashrc" \
@@ -43,8 +54,11 @@ setup_node_path() {
     "$HOME/.bash_profile" \
     /etc/profile \
     /etc/bash.bashrc; do
-    # shellcheck disable=SC1090,SC1091
-    [ -f "$src" ] && . "$src" >/dev/null 2>&1 || true
+    if [ -f "$src" ]; then
+      log "  source $src"
+      # shellcheck disable=SC1090,SC1091
+      . "$src" 2>/dev/null || log "  source $src 出现非致命错误，继续"
+    fi
   done
 
   if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
@@ -88,8 +102,6 @@ ensure_pm2
 hash -r 2>/dev/null || true
 
 log "工具链版本: node=$(node -v 2>/dev/null || echo 'N/A'), pnpm=$(pnpm -v 2>/dev/null || echo 'N/A'), pm2=$(pm2 -v 2>/dev/null || echo 'N/A')"
-
-mkdir -p "$DEPLOY_DIR/logs"
 
 # ---------- 1. 拉取最新代码 ----------
 if [ ! -d "$DEPLOY_DIR/repo/.git" ]; then
