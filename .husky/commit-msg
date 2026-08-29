@@ -1,0 +1,2 @@
+# 校验 commit message 是否符合 Conventional Commits 规范
+pnpm exec commitlint --edit "$1"

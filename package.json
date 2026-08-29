@@ -1,0 +1,52 @@
+{
+  "name": "threejs-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "pnpm monorepo: Vue3 + Three.js 前端(8080) & NestJS 后端(1024)",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "dev:web": "pnpm --filter @demo/web dev",
+    "dev:server": "pnpm --filter @demo/server start:dev",
+    "dev": "concurrently -n WEB,SERVER -c blue,green \"pnpm dev:web\" \"pnpm dev:server\"",
+    "build:web": "pnpm --filter @demo/web build",
+    "build:server": "pnpm --filter @demo/server build",
+    "build": "pnpm -r build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.0",
+    "@commitlint/config-conventional": "^19.8.0",
+    "@eslint/js": "^9.27.0",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.27.0",
+    "eslint-config-prettier": "^10.1.5",
+    "eslint-plugin-vue": "^10.1.0",
+    "globals": "^16.2.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.5.3",
+    "typescript-eslint": "^8.33.0"
+  },
+  "lint-staged": {
+    "*.{js,mjs,cjs,ts,mts,cts,vue}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css,scss,html}": [
+      "prettier --write"
+    ]
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "core-js",
+      "unrs-resolver"
+    ]
+  }
+}

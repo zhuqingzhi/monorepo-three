@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+coverage/
+
+# misc
+.DS_Store
+*.local
+.env
+.env.*
+
+# pnpm local store (sandbox-friendly)
+.pnpm-store/
+
+# husky internal
+.husky/_/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*

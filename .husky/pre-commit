@@ -1,0 +1,2 @@
+# 提交前：只校验暂存区（staged）文件
+pnpm exec lint-staged

@@ -1,0 +1,31 @@
+# ============================================================
+# 服务配置文件（由 src/config/configuration.ts 通过 js-yaml 读入）
+# 带有 TODO 标记的位置即为需要填写的密码/密钥位置
+# ============================================================
+
+app:
+  name: nest-server
+  port: 1024 # 服务监听端口
+
+# ---------------- MySQL ----------------
+mysql:
+  host: 127.0.0.1
+  port: 3306
+  username: root
+  password: '' # TODO: <== 在此填写 MySQL 密码
+  database: demo
+
+# ---------------- Redis ----------------
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: '' # TODO: <== 在此填写 Redis 密码（无密码可留空）
+
+# ---------------- MinIO ----------------
+minio:
+  endPoint: 127.0.0.1
+  port: 9000
+  useSSL: false
+  accessKey: minioadmin # TODO: <== 在此填写 MinIO AccessKey
+  secretKey: '' # TODO: <== 在此填写 MinIO SecretKey
+  bucket: demo
