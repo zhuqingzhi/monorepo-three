@@ -109,9 +109,11 @@ jobs:
           port: ${{ secrets.SERVER_PORT || 22 }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # tar 内路径为 release/web/xxx，需剥掉 2 层（release/ + web/）才能直接落进 WEB_DIR，
+          # 只剥 1 层会多出一级目录（/web/web）
           source: 'release/web/*'
           target: ${{ env.WEB_DIR }}
-          strip_components: 1
+          strip_components: 2
           overwrite: true
 
       - name: 上传后端到应用目录
@@ -121,9 +123,10 @@ jobs:
           port: ${{ secrets.SERVER_PORT || 22 }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # tar 内路径为 release/server/xxx，同样剥 2 层（release/ + server/）
           source: 'release/server/*'
           target: ${{ env.APP_DIR }}
-          strip_components: 1
+          strip_components: 2
           overwrite: true
 
       - name: 安装生产依赖并重启服务
